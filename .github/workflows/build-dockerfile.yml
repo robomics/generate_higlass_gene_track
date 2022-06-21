@@ -1,21 +1,21 @@
 # Copyright (c) 2021 Roberto Rossini (roberros@uio.no)
 # SPDX-License-Identifier: MIT
 
-name: Build Dockerfiles Container
+name: Build Dockerfile
 
 on:
   push:
     branches: [ main ]
     paths:
-      - ".github/workflows/build-dockerfiles.yml"
+      - ".github/workflows/build-dockerfile.yml"
       - "Dockerfile"
   pull_request:
     paths:
-      - ".github/workflows/build-dockerfiles.yml"
+      - ".github/workflows/build-dockerfile.yml"
       - "Dockerfile"
 
 jobs:
-  docker:
+  build-image:
     runs-on: ubuntu-latest
 
     permissions:
