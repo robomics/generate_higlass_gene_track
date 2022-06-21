@@ -24,7 +24,7 @@ jobs:
 
       - name: Install Nextflow
         run: |
-          curl -s https://get.nextflow.io | bash
+          curl -s https://get.nextflow.io | bash &> /dev/null
           sudo mv nextflow /usr/local/bin
           sudo chmod 755 /usr/local/bin/nextflow
 
@@ -65,7 +65,7 @@ jobs:
           chrom_sizes="https://hgdownload.cse.ucsc.edu/goldenPath/${assembly}/bigZips/${assembly}.chrom.sizes"
           refgene="https://hgdownload.cse.ucsc.edu/goldenPath/${assembly}/database/refGene.txt.gz"
           
-          echo "process.container = 'docker://ghcr.io/robomics/generate_higlass_gene_track:latest'"
+          echo "process.container = 'docker://ghcr.io/robomics/generate_higlass_gene_track:latest'" > config
           
           nextflow run --gene2refseq=data/gene2refseq.gz            \
                        --gene_info=data/gene_info.gz                \
