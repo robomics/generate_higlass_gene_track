@@ -1,7 +1,7 @@
 # Copyright (c) 2021 Roberto Rossini (roberros@uio.no)
 # SPDX-License-Identifier: MIT
 
-name: Build Dockerfiles Container
+name: Test Workflow
 
 on:
   push:
@@ -15,8 +15,12 @@ on:
       - "main.nf"
 
 jobs:
-  docker:
+  test-workflow:
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: read
 
     steps:
       - name: Checkout
@@ -27,6 +31,16 @@ jobs:
           curl -s https://get.nextflow.io | bash &> /dev/null
           sudo mv nextflow /usr/local/bin
           sudo chmod 755 /usr/local/bin/nextflow
+          
+          which nextflow
+          nextflow run -help
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cache test datasets
         id: cache-datasets
@@ -43,29 +57,23 @@ jobs:
           
           assembly='sacCer3'
           
+          curl -LOs 'https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene2refseq.gz' &
+          curl -LOs 'https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene_info.gz' &
+          curl -LOs 'https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene2pubmed.gz' &
           
-          curl -LO 'https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene2refseq.gz' &> /dev/null &
-          curl -LO 'https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene_info.gz' &> /dev/null &
-          curl -LO 'https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene2pubmed.gz' &> /dev/null &
-          
-          curl -LO "https://hgdownload.cse.ucsc.edu/goldenPath/${assembly}/bigZips/${assembly}.chrom.sizes" &> /dev/null &
-          curl -LO "https://hgdownload.cse.ucsc.edu/goldenPath/${assembly}/database/xenoRefGene.txt.gz" &> /dev/null &
+          curl -LOs "https://hgdownload.cse.ucsc.edu/goldenPath/${assembly}/bigZips/${assembly}.chrom.sizes" &
+          curl -LOs "https://hgdownload.cse.ucsc.edu/goldenPath/${assembly}/database/xenoRefGene.txt.gz" &
           
           wait
+          
+          ls -lah .
 
       - name: Run Nextflow
         run: |
-          assembly='hg38'
+          assembly='sacCer3'
           taxid='4932'
           
-          gene2refseq='https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene2refseq.gz'
-          gene_info='https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene_info.gz'
-          gene2pubmed='https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene2pubmed.gz'
-          
-          chrom_sizes="https://hgdownload.cse.ucsc.edu/goldenPath/${assembly}/bigZips/${assembly}.chrom.sizes"
-          refgene="https://hgdownload.cse.ucsc.edu/goldenPath/${assembly}/database/refGene.txt.gz"
-          
-          echo "process.container = 'docker://ghcr.io/robomics/generate_higlass_gene_track:latest'" > config
+          echo "process.container = 'ghcr.io/robomics/generate_higlass_gene_track:latest'" > config
           
           nextflow run --gene2refseq=data/gene2refseq.gz            \
                        --gene_info=data/gene_info.gz                \
