@@ -1,0 +1,78 @@
+# Copyright (c) 2021 Roberto Rossini (roberros@uio.no)
+# SPDX-License-Identifier: MIT
+
+name: Build Dockerfiles Container
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/test-workflow.yml"
+      - "main.nf"
+  pull_request:
+    paths:
+      - ".github/workflows/test-workflow.yml"
+      - "main.nf"
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Install Nextflow
+        run: |
+          curl -s https://get.nextflow.io | bash
+          sudo mv nextflow /usr/local/bin
+          sudo chmod 755 /usr/local/bin/nextflow
+
+      - name: Cache test datasets
+        id: cache-datasets
+        uses: actions/cache@v3
+        with:
+          path: data
+          key: "test-datasets-${{ hashFiles('.github/workflows/test-workflow.yml') }}"
+
+      - name: Download datasets
+        if: steps.cache-datasets.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p data
+          cd data
+          
+          assembly='sacCer3'
+          
+          
+          curl -LO 'https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene2refseq.gz' &> /dev/null &
+          curl -LO 'https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene_info.gz' &> /dev/null &
+          curl -LO 'https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene2pubmed.gz' &> /dev/null &
+          
+          curl -LO "https://hgdownload.cse.ucsc.edu/goldenPath/${assembly}/bigZips/${assembly}.chrom.sizes" &> /dev/null &
+          curl -LO "https://hgdownload.cse.ucsc.edu/goldenPath/${assembly}/database/xenoRefGene.txt.gz" &> /dev/null &
+          
+          wait
+
+      - name: Run Nextflow
+        run: |
+          assembly='hg38'
+          taxid='4932'
+          
+          gene2refseq='https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene2refseq.gz'
+          gene_info='https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene_info.gz'
+          gene2pubmed='https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene2pubmed.gz'
+          
+          chrom_sizes="https://hgdownload.cse.ucsc.edu/goldenPath/${assembly}/bigZips/${assembly}.chrom.sizes"
+          refgene="https://hgdownload.cse.ucsc.edu/goldenPath/${assembly}/database/refGene.txt.gz"
+          
+          echo "process.container = 'docker://ghcr.io/robomics/generate_higlass_gene_track:latest'"
+          
+          nextflow run --gene2refseq=data/gene2refseq.gz            \
+                       --gene_info=data/gene_info.gz                \
+                       --gene2pubmed=data/gene2pubmed.gz            \
+                       --chrom_sizes="data/${assembly}.chrom.sizes" \
+                       --refgene=data/xenoRefGene.txt.gz            \
+                       --taxid="$taxid" \
+                       -with-docker \
+                       -c config \
+                       main.nf
