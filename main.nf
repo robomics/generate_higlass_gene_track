@@ -7,8 +7,6 @@
 nextflow.enable.dsl=2
 
 params.outdir = 'results'
-params.assembly = 'hg38'
-params.taxid
 
 workflow {
 
@@ -23,24 +21,26 @@ workflow {
                 }
         .set { genbank_filtered }
 
-    refgene = process_refgene(file(params.refgene))
+    refgene_sorted = process_refgene(file(params.refgene))
 
     chrom_sizes = file(params.chrom_sizes)
 
-    cit_count = count_citations(genbank_filtered.gene2pubmed)
-    geneid_refseqid = process_gene2refseq(refgene)
+    gene2pubmed_count = count_citations(genbank_filtered.gene2pubmed)
+    geneid_refseqid = process_gene2refseq(genbank_filtered.gene2refseq)
 
     geneid_refseqid_count = join_gene_with_refseq(geneid_refseqid,
-                                                  cit_count)
+                                                  gene2pubmed_count)
     geneid_refgene_count = join_refseq_with_geneid(geneid_refseqid_count,
-                                                   refgene)
+                                                   refgene_sorted)
     gene_subinfo_citation_count = join_cit_with_genes(genbank_filtered.geneinfo,
-                                                      cit_count)
+                                                      gene2pubmed_count)
 
     annotation = generate_annotation_bed(gene_subinfo_citation_count,
                                          geneid_refgene_count)
 
-    run_clodius(chrom_sizes, run_exonu(annotation))
+    run_clodius(chrom_sizes,
+                run_exonu(annotation),
+                params.assembly)
 }
 
 process filter_genbank_data {
@@ -53,9 +53,10 @@ process filter_genbank_data {
 
     shell:
         '''
+        set -o pipefail
+
         gzip -dc '!{file}'   |
             grep '^!{taxid}' |
-            sort -k 2,2n     |
             zstd --adapt -T!{task.cpus} -o '!{file.simpleName}.!{taxid}.zst'
         '''
 }
@@ -69,9 +70,11 @@ process process_refgene {
 
     shell:
         '''
-        gzip -dc '!{refgene}'                         |
+        set -o pipefail
+
+        gzip -dcf '!{refgene}'                        |
             awk -F $'\\t' '{if (!($3 ~ /_/)) print;}' |
-            sort -k 2,2n                              |
+            sort -k 2,2                               |
             zstd --adapt -T!{task.cpus} -o 'refgene_sorted.zst'
         '''
 }
@@ -85,11 +88,14 @@ process count_citations {
 
     shell:
         '''
-        cut -f 2 '!{gene2pubmed}'                 |
-            sort --parallel='!{task.cpus}'        |
-            uniq -c                               |
-            awk 'BEGIN{ OFS="\t" } {print $2,$1}' |
-            sort -k1,1n --parallel=!{task.cpus}   |
+        set -o pipefail
+
+        zstd -dcf '!{gene2pubmed}'    |
+            awk '{print $2}'          |
+            sort                      |
+            uniq -c                   |
+            awk '{print $2 "\\t" $1}' |
+            sort -k 1,1               |
             zstd --adapt -T!{task.cpus} -o 'gen2pubmed_count.zst'
         '''
 }
@@ -103,16 +109,18 @@ process process_gene2refseq {
 
     shell:
         '''
-        awk -F $'\t' '{ split($4,a,"."); if (a[1] != "-") print $2 "\t" a[1];}' \
-            '!{gene2refseq}' |
-            sort -u          |
+        set -o pipefail
+
+        zstd -dcf '!{gene2refseq}'           |
+            awk -F $'\\t' '{ split($4,a,"."); if (a[1] != "-") print $2 "\\t" a[1];}' |
+            sort -k 1,1 -u |
             zstd --adapt -T!{task.cpus} -o 'geneid_refseqid.zst'
         '''
 }
 
 process join_gene_with_refseq {
     input:
-        path geneid_refseqid_count
+        path geneid_refseqid
         path gene2pubmed_count
 
     output:
@@ -120,9 +128,12 @@ process join_gene_with_refseq {
 
     shell:
         '''
-        join <(zstd -dc '!{geneid_refseqid_count}') \
-             <(zstd -dc '!{gene2pubmed_count}')     |
-             sort -k2                               |
+        set -o pipefail
+
+        join -j 1 \
+             <(zstd -dcf '!{geneid_refseqid}')   \
+             <(zstd -dcf '!{gene2pubmed_count}') |
+             sort -k 2,2                         |
              zstd --adapt -T!{task.cpus} -o geneid_refseqid_count.zst
         '''
 }
@@ -137,11 +148,13 @@ process join_refseq_with_geneid {
 
     shell:
         '''
-        join -1 2 -2 2                              \
-             <(zstd -dc '!{geneid_refseqid_count}') \
-             <(zstd -dc '!{refgene_sorted}')        |
-             cut -f 2,1,5-13,3                      |
-             sort -k1                               |
+        set -o pipefail
+
+        join -j 2                                     \
+             <(zstd -dcf '!{geneid_refseqid_count}')  \
+             <(zstd -dcf '!{refgene_sorted}')         |
+             awk 'BEGIN{ OFS="\t" } { print $2,$1,$5,$6,$7,$8,$9,$10,$11,$12,$13,$3; }' |
+             sort -k 1,1                              |
              zstd --adapt -T!{task.cpus} -o geneid_refgene_count.zst
         '''
 }
@@ -156,11 +169,14 @@ process join_cit_with_genes {
 
     shell:
         '''
-        join -1 2 -2 1 -t $'\\t'                \
-             <(zstd -dc '!{geneinfo}')          \
-             <(zstd -dc '!{gene2pubmed_count}') |
-             cut -f 2,1,5-13,3                  |
-             sort -k1                           |
+        set -o pipefail
+
+        join -1 2 -2 1                 \
+             <(zstd -dcf '!{geneinfo}' |
+               sort -k 2,2 ) \
+             <(zstd -dcf '!{gene2pubmed_count}') |
+             awk 'BEGIN{ OFS="\\t" } { print $1,$3,$10,$12,$16 }' |
+             sort -k 1,1                         |
              zstd --adapt -T!{task.cpus} -o gene_subinfo_citation_count.zst
         '''
 }
@@ -175,10 +191,11 @@ process generate_annotation_bed {
 
     shell:
         '''
-        join -t $'\\t'                                    \
-             <(zstd -dc '!{gene_subinfo_citation_count}') \
-             <(zstd -dc '!{geneid_refgene_count}')        |
-             cut -f 7,9,10,2,16,8,6,1,3,4,11,12,14,15     |
+        set -o pipefail
+
+        join <(zstd -dcf '!{gene_subinfo_citation_count}') \
+             <(zstd -dcf '!{geneid_refgene_count}')        |
+             awk 'BEGIN{ OFS="\\t" } { print $7,$9,$10,$2,$16,$8,$6,$1,$3,$4,$11,$12,$14,$15; }' |
              zstd --adapt -T!{task.cpus} -o gene_annotation.bed.zst
         '''
 }
@@ -192,7 +209,9 @@ process run_exonu {
 
     shell:
         '''
-        exonU.py <(zstd -dc '!{gene_annotation}') > gene_annotation_exon_unions.bed
+        set -o pipefail
+
+        exonU.py <(zstd -dcf '!{gene_annotation}') > gene_annotation_exon_unions.bed
         '''
 }
 
@@ -202,6 +221,7 @@ process run_clodius {
     input:
         path chrom_sizes
         path gene_annotation_exon_unions
+	    val assembly_name
 
     output:
         path "annotation.db"
@@ -211,7 +231,8 @@ process run_clodius {
         clodius aggregate bedfile \
             --max-per-tile 20 \
             --importance-column 5 \
-            --chromsizes-filename '!{chrom_sizes}' \
+	        --assembly '!{assembly_name}' \
+	        --chromsizes-filename '!{chrom_sizes}' \
             --output-file annotation.db \
             --delimiter $'\\t' \
             '!{gene_annotation_exon_unions}'
