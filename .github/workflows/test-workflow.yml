@@ -81,6 +81,14 @@ jobs:
                        --chrom_sizes="data/${assembly}.chrom.sizes" \
                        --refgene=data/xenoRefGene.txt.gz            \
                        --taxid="$taxid" \
+                       --assembly="$assembly" \
                        -with-docker \
                        -c config \
                        main.nf
+
+      - name: Compare checksum
+        run: |
+          checksum='3999bfea9a06a609ae39993f45b6e95933777a7ce8081c4a477f0932bf2b966c'
+          fp='results/gene-annotations-sacCer3.db'
+          
+          shasum -c <(echo "$checksum  $fp")
