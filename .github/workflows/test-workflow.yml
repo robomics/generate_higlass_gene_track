@@ -8,15 +8,32 @@ on:
     branches: [ main ]
     paths:
       - ".github/workflows/test-workflow.yml"
+      - "config/example-sacCer3.config"
       - "main.nf"
+      - "nextflow.config"
   pull_request:
     paths:
       - ".github/workflows/test-workflow.yml"
+      - "config/example-sacCer3.config"
       - "main.nf"
+      - "nextflow.config"
+
+# https://stackoverflow.com/a/72408109
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   test-workflow:
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        NXF_VER: [ "22.10", "latest" ]
 
     permissions:
       contents: read
@@ -27,14 +44,11 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Install Nextflow
-        run: |
-          curl -s https://get.nextflow.io | bash &> /dev/null
-          sudo mv nextflow /usr/local/bin
-          sudo chmod 755 /usr/local/bin/nextflow
-          
-          which nextflow
-          nextflow run -help
+        uses: nf-core/setup-nextflow@v1
+        with:
+          version: ${{ matrix.NXF_VER }}
 
+      # TODO: remove this step once repo and package are public
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v2
         with:
@@ -42,49 +56,9 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Cache test datasets
-        id: cache-datasets
-        uses: actions/cache@v3
-        with:
-          path: data
-          key: "test-datasets-${{ hashFiles('.github/workflows/test-workflow.yml') }}"
-
-      - name: Download datasets
-        if: steps.cache-datasets.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p data
-          cd data
-          
-          assembly='sacCer3'
-          
-          curl -LOs 'https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene2refseq.gz' &
-          curl -LOs 'https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene_info.gz' &
-          curl -LOs 'https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene2pubmed.gz' &
-          
-          curl -LOs "https://hgdownload.cse.ucsc.edu/goldenPath/${assembly}/bigZips/${assembly}.chrom.sizes" &
-          curl -LOs "https://hgdownload.cse.ucsc.edu/goldenPath/${assembly}/database/xenoRefGene.txt.gz" &
-          
-          wait
-          
-          ls -lah .
-
       - name: Run Nextflow
         run: |
-          assembly='sacCer3'
-          taxid='4932'
-          
-          echo "process.container = 'ghcr.io/robomics/generate_higlass_gene_track:latest'" > config
-          
-          nextflow run --gene2refseq=data/gene2refseq.gz            \
-                       --gene_info=data/gene_info.gz                \
-                       --gene2pubmed=data/gene2pubmed.gz            \
-                       --chrom_sizes="data/${assembly}.chrom.sizes" \
-                       --refgene=data/xenoRefGene.txt.gz            \
-                       --taxid="$taxid" \
-                       --assembly="$assembly" \
-                       -with-docker \
-                       -c config \
-                       main.nf
+          nextflow run -c config/example-sacCer3.config main.nf -with-docker
 
       - name: Compare checksum
         run: |

@@ -6,8 +6,6 @@
 
 nextflow.enable.dsl=2
 
-params.outdir = 'results'
-
 workflow {
 
     filter_genbank_data(Channel.of(file(params.gene2refseq),
