@@ -23,17 +23,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-defaults:
-  run:
-    shell: bash
-
 jobs:
   test-workflow:
     runs-on: ubuntu-latest
 
     strategy:
       matrix:
-        NXF_VER: [ "22.10", "latest" ]
+        NXF_VER: [ "22.10" ] #, "latest" ]
 
     permissions:
       contents: read
@@ -57,6 +53,8 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run Nextflow
+        env:
+          NXF_ANSI_LOG: false
         run: |
           nextflow run -c config/example-sacCer3.config main.nf -with-docker
 
